@@ -446,7 +446,12 @@ async function updatePrices() {
   try {
     status.innerHTML = `<span style="color:var(--text-dim)">Fetching prices for ${REPORTS.length} tickers…</span>`;
     const res = await fetch(`/api/prices?tickers=${encodeURIComponent(tickers)}`);
-    if (!res.ok) throw new Error(`Server responded with ${res.status}`);
+    if (!res.ok) {
+      // Read body so we can show the real error (Vercel sometimes returns HTML for 401/404)
+      const bodyText = await res.text();
+      const snippet = bodyText.slice(0, 200).replace(/\s+/g, ' ').trim();
+      throw new Error(`HTTP ${res.status} — ${snippet || res.statusText || 'no body'}`);
+    }
     const data = await res.json();
 
     if (data.error) {
@@ -529,7 +534,11 @@ async function loadCalendar() {
   const tickers = REPORTS.map(r => r.ticker).join(',');
   try {
     const res = await fetch(`/api/calendar?tickers=${encodeURIComponent(tickers)}`);
-    if (!res.ok) throw new Error(`Server responded with ${res.status}`);
+    if (!res.ok) {
+      const bodyText = await res.text();
+      const snippet = bodyText.slice(0, 200).replace(/\s+/g, ' ').trim();
+      throw new Error(`HTTP ${res.status} — ${snippet || res.statusText || 'no body'}`);
+    }
     const data = await res.json();
     calState.events = (data.events || []).map(e => ({ ...e, source: 'live' }));
     calState.noData = data.noData || [];
