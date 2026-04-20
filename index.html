@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
+<title>RPS Research — Equity Research Coverage</title>
+<meta name="description" content="Independent equity research across small & mid-cap opportunities by RPS Research.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0A0A0C; --card: rgba(255,255,255,0.02); --card-hover: rgba(255,255,255,0.04);
+    --border: rgba(255,255,255,0.06); --text: #fff; --text-dim: rgba(255,255,255,0.5);
+    --text-faint: rgba(255,255,255,0.25); --text-ghost: rgba(255,255,255,0.12);
+    --green: #10B981; --red: #EF4444; --amber: #F59E0B; --warning: #F97316;
+    --blue: #3B82F6;
+  }
+  body { background: var(--bg); color: var(--text); font-family: 'Inter', -apple-system, sans-serif; min-height: 100vh; }
+  ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+
+  .grid-bg { position: fixed; inset: 0; background-image: linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px); background-size: 60px 60px; pointer-events: none; z-index: 0; }
+  .glow { position: fixed; top: -200px; right: -200px; width: 600px; height: 600px; background: radial-gradient(circle, rgba(59,130,246,0.04) 0%, transparent 70%); pointer-events: none; z-index: 0; }
+
+  .container { position: relative; z-index: 1; max-width: 900px; margin: 0 auto; padding: 40px 24px 60px; }
+
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+  .fade-in { animation: fadeUp 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards; opacity: 0; }
+
+  .logo-mark { width: 32px; height: 32px; border-radius: 8px; background: linear-gradient(135deg, #fff, #888); display: flex; align-items: center; justify-content: center; }
+  .brand { font-family: 'Playfair Display', serif; font-size: 24px; font-weight: 700; letter-spacing: -0.5px; }
+  h1 { font-family: 'Playfair Display', serif; font-size: clamp(32px, 5vw, 48px); font-weight: 900; letter-spacing: -1.5px; line-height: 1.1; margin-bottom: 12px; }
+  h1 span { display: block; background: linear-gradient(135deg, #888, #444); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .subtitle { font-size: 14px; color: var(--text-dim); max-width: 520px; line-height: 1.6; }
+  .timestamp { font-size: 11px; color: var(--text-ghost); font-family: 'JetBrains Mono', monospace; margin-top: 12px; }
+  .timestamp .dot { animation: pulse 2s infinite; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--green); margin-right: 6px; vertical-align: middle; }
+
+  .action-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+  .action-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif; transition: all 0.2s; border: 1px solid; background: none; }
+  .action-btn.update-btn { background: rgba(16,185,129,0.08); border-color: rgba(16,185,129,0.25); color: var(--green); }
+  .action-btn.update-btn:hover { background: rgba(16,185,129,0.15); }
+  .action-btn.cal-btn { background: rgba(59,130,246,0.08); border-color: rgba(59,130,246,0.25); color: var(--blue); }
+  .action-btn.cal-btn:hover { background: rgba(59,130,246,0.15); }
+  .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .action-btn .spinner { display: none; width: 14px; height: 14px; border: 2px solid rgba(16,185,129,0.3); border-top-color: var(--green); border-radius: 50%; animation: spin 0.6s linear infinite; }
+  .action-btn.loading .spinner { display: inline-block; }
+  .action-btn.loading .btn-icon { display: none; }
+  .update-status { margin-top: 10px; font-size: 11px; font-family: 'JetBrains Mono', monospace; line-height: 1.6; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--border); border-radius: 12px; overflow: hidden; margin-bottom: 36px; }
+  .stat { background: var(--bg); padding: 20px 16px; text-align: center; }
+  .stat-label { font-size: 9px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 8px; }
+  .stat-value { font-family: 'JetBrains Mono', monospace; font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+  .stat-sub { font-size: 10px; color: var(--text-ghost); }
+
+  .sort-row { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+  .sort-label { font-size: 10px; color: var(--text-ghost); text-transform: uppercase; letter-spacing: 1.5px; margin-right: 4px; }
+  .sort-btn { background: none; border: 1px solid rgba(255,255,255,0.08); color: rgba(255,255,255,0.35); padding: 6px 14px; border-radius: 6px; font-size: 11px; font-weight: 500; cursor: pointer; transition: all 0.3s; letter-spacing: 0.5px; font-family: 'Inter', sans-serif; }
+  .sort-btn:hover { border-color: rgba(255,255,255,0.2); color: rgba(255,255,255,0.6); }
+  .sort-btn.active { border-color: rgba(255,255,255,0.25); color: #fff; background: rgba(255,255,255,0.05); }
+
+  .cards { display: flex; flex-direction: column; gap: 12px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; position: relative; transition: all 0.3s; cursor: pointer; scroll-margin-top: 20px; }
+  .card:hover { background: var(--card-hover); }
+  .card.highlight-flash { animation: highlightFlash 2s ease-out; }
+  @keyframes highlightFlash { 0% { box-shadow: 0 0 0 2px rgba(59,130,246,0.5); } 100% { box-shadow: 0 0 0 0 rgba(59,130,246,0); } }
+  .card-accent { position: absolute; top: 0; left: 0; right: 0; height: 2px; }
+  .card-body { padding: 24px 28px; }
+  .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+  .ticker { font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; }
+  .badge { font-size: 10px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; padding: 3px 8px; border-radius: 4px; }
+  .badge-buy { color: var(--green); background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.2); }
+  .badge-spec { color: var(--amber); background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.2); }
+  .badge-target { color: var(--amber); background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.2); font-size: 10px; }
+  .exchange { font-size: 10px; color: rgba(255,255,255,0.3); }
+  .company { font-size: 13px; color: var(--text-dim); margin-bottom: 2px; }
+  .sector { font-size: 11px; color: var(--text-faint); font-style: italic; }
+  .perf { font-family: 'JetBrains Mono', monospace; font-size: 26px; font-weight: 700; line-height: 1; }
+  .perf.up { color: var(--green); } .perf.down { color: var(--red); }
+  .days { font-size: 10px; color: rgba(255,255,255,0.3); margin-top: 4px; }
+
+  .prices-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+  .price-block label { font-size: 9px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 2px; }
+  .price-block .val { font-family: 'JetBrains Mono', monospace; font-size: 14px; }
+
+  .upside-row { margin-top: 14px; }
+  .upside-row .meta { display: flex; justify-content: space-between; margin-bottom: 4px; }
+  .upside-row .meta span:first-child { font-size: 9px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 1px; }
+  .upside-row .meta span:last-child { font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+  .bar-track { width: 100px; height: 6px; background: rgba(255,255,255,0.06); border-radius: 3px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 3px; transition: width 1.2s cubic-bezier(0.22, 1, 0.36, 1); }
+
+  .card-expand { padding: 0 28px 24px; border-top: 1px solid var(--border); padding-top: 16px; display: none; }
+  .card.open .card-expand { display: block; }
+  .tagline { font-size: 12px; font-style: italic; margin-bottom: 12px; opacity: 0.8; }
+  .highlight { display: flex; gap: 8px; margin-bottom: 8px; }
+  .highlight .dot { width: 4px; height: 4px; border-radius: 50%; margin-top: 6px; flex-shrink: 0; }
+  .highlight span { font-size: 12px; color: rgba(255,255,255,0.55); line-height: 1.5; }
+
+  .dl-btn { margin-top: 16px; display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif; transition: all 0.2s; text-decoration: none; }
+  .dl-btn:hover { filter: brightness(1.3); }
+
+  .reality-check { margin-top: 20px; padding: 16px; background: rgba(249,115,22,0.08); border: 1px solid rgba(249,115,22,0.25); border-radius: 12px; }
+  .reality-check-header { display: flex; align-items: center; gap: 8px; color: var(--warning); font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+  .reality-check ul { list-style: none; padding-left: 0; }
+  .reality-check li { display: flex; gap: 8px; font-size: 12.5px; color: #FCA5A5; line-height: 1.5; margin-bottom: 8px; }
+  .reality-check li:before { content: "⚠️"; flex-shrink: 0; }
+  .refresh-btn { font-size: 11px; padding: 6px 14px; background: rgba(249,115,22,0.1); border: 1px solid rgba(249,115,22,0.3); color: var(--warning); border-radius: 6px; cursor: pointer; margin-left: auto; font-family: 'Inter', sans-serif; transition: background 0.2s; }
+  .refresh-btn:hover { background: rgba(249,115,22,0.2); }
+
+  .footer { margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--border); text-align: center; }
+  .footer .brand-sm { font-family: 'Playfair Display', serif; font-size: 16px; color: rgba(255,255,255,0.15); margin-bottom: 8px; }
+  .footer .fine { font-size: 10px; color: var(--text-ghost); line-height: 1.8; }
+
+  /* ============ CALENDAR MODAL ============ */
+  .cal-modal { position: fixed; inset: 0; z-index: 100; background: rgba(10,10,12,0.85); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); display: flex; align-items: flex-start; justify-content: center; padding: 40px 20px; overflow-y: auto; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
+  .cal-modal.open { opacity: 1; pointer-events: auto; }
+  .cal-container { max-width: 900px; width: 100%; background: #0E0E10; border: 1px solid var(--border); border-radius: 20px; padding: 32px; animation: fadeUp 0.4s cubic-bezier(0.22, 1, 0.36, 1); }
+  .cal-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; flex-wrap: wrap; gap: 16px; }
+  .cal-title { font-family: 'Playfair Display', serif; font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
+  .cal-title-sub { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+  .cal-close { background: none; border: 1px solid var(--border); color: var(--text-dim); width: 36px; height: 36px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-family: 'Inter', sans-serif; font-size: 18px; transition: all 0.2s; }
+  .cal-close:hover { background: rgba(255,255,255,0.05); color: #fff; }
+  .cal-nav { display: flex; align-items: center; gap: 12px; margin-top: 20px; margin-bottom: 20px; }
+  .cal-nav-btn { background: none; border: 1px solid var(--border); color: var(--text-dim); width: 32px; height: 32px; border-radius: 8px; cursor: pointer; font-family: 'Inter', sans-serif; transition: all 0.2s; display: flex; align-items: center; justify-content: center; }
+  .cal-nav-btn:hover { background: rgba(255,255,255,0.05); color: #fff; border-color: rgba(255,255,255,0.15); }
+  .cal-month-label { font-family: 'Playfair Display', serif; font-size: 20px; font-weight: 700; letter-spacing: -0.3px; min-width: 180px; }
+  .cal-today-btn { font-size: 10px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 1.5px; border: 1px solid var(--border); background: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-family: 'Inter', sans-serif; transition: all 0.2s; margin-left: auto; }
+  .cal-today-btn:hover { color: #fff; border-color: rgba(255,255,255,0.15); }
+
+  .cal-legend { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 16px; padding: 12px 16px; background: rgba(255,255,255,0.02); border-radius: 10px; border: 1px solid var(--border); }
+  .cal-legend-item { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-dim); }
+  .cal-legend-mark { width: 14px; height: 14px; border-radius: 3px; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; }
+
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .cal-dow { background: #0E0E10; padding: 10px 8px; font-size: 9px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 1.5px; text-align: center; font-weight: 600; }
+  .cal-cell { background: #0E0E10; min-height: 90px; padding: 8px; display: flex; flex-direction: column; gap: 4px; position: relative; transition: background 0.2s; }
+  .cal-cell:hover { background: rgba(255,255,255,0.02); }
+  .cal-cell.other-month { opacity: 0.3; }
+  .cal-cell.today { background: rgba(59,130,246,0.06); }
+  .cal-cell.today .cal-date { color: var(--blue); font-weight: 700; }
+  .cal-date { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-dim); margin-bottom: 2px; }
+  .cal-event { display: flex; align-items: center; gap: 4px; padding: 3px 6px; border-radius: 4px; font-size: 10px; font-family: 'JetBrains Mono', monospace; font-weight: 600; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid transparent; transition: all 0.15s; }
+  .cal-event:hover { filter: brightness(1.3); transform: translateX(1px); }
+  .cal-event-mark { width: 12px; height: 12px; border-radius: 2px; font-size: 8px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: #0A0A0C; }
+  .cal-event-ticker { overflow: hidden; text-overflow: ellipsis; }
+  .cal-more { font-size: 9px; color: var(--text-faint); font-family: 'JetBrains Mono', monospace; padding: 2px 4px; }
+
+  .cal-empty { text-align: center; padding: 60px 20px; color: var(--text-faint); font-size: 13px; }
+  .cal-loading { text-align: center; padding: 60px 20px; color: var(--text-dim); font-size: 13px; font-family: 'JetBrains Mono', monospace; }
+  .cal-loading .dot { animation: pulse 1.2s infinite; display: inline-block; }
+
+  .cal-upcoming { margin-top: 28px; }
+  .cal-upcoming-title { font-family: 'Playfair Display', serif; font-size: 16px; font-weight: 700; margin-bottom: 12px; color: var(--text); }
+  .cal-upcoming-list { display: flex; flex-direction: column; gap: 6px; }
+  .cal-upcoming-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 8px; font-size: 12px; cursor: pointer; transition: all 0.2s; }
+  .cal-upcoming-item:hover { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.12); }
+  .cal-upcoming-date { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-dim); min-width: 85px; }
+  .cal-upcoming-ticker { font-family: 'JetBrains Mono', monospace; font-weight: 700; min-width: 72px; }
+  .cal-upcoming-label { color: var(--text-dim); flex: 1; }
+  .cal-upcoming-when { font-size: 10px; color: var(--text-faint); font-family: 'JetBrains Mono', monospace; }
+
+  .cal-missing { margin-top: 16px; padding: 10px 14px; font-size: 11px; color: var(--text-faint); background: rgba(255,255,255,0.02); border: 1px dashed var(--border); border-radius: 8px; line-height: 1.6; }
+
+  @media (max-width: 640px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .prices-row { flex-direction: column; align-items: flex-start; }
+    .card-body { padding: 20px 18px; }
+    .cal-container { padding: 20px 16px; border-radius: 14px; }
+    .cal-cell { min-height: 70px; padding: 5px 4px; }
+    .cal-date { font-size: 10px; }
+    .cal-event { font-size: 9px; padding: 2px 4px; }
+    .cal-event-mark { width: 10px; height: 10px; font-size: 7px; }
+    .cal-legend { gap: 10px; padding: 10px; }
+  }
+</style>
+</head>
+<body>
+<div class="grid-bg"></div>
+<div class="glow"></div>
+
+<div class="container">
+  <header class="fade-in" style="margin-bottom: 48px;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+      <div class="logo-mark">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="#0A0A0C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <span class="brand">RPS Research</span>
+    </div>
+    <h1>Equity Research<span>Coverage Universe</span></h1>
+    <p class="subtitle">Independent research across small &amp; mid-cap opportunities. Performance tracked from initiation date.</p>
+    <div class="timestamp"><span class="dot"></span> Prices updated: <span id="update-date">April 12, 2026</span></div>
+
+    <div class="action-row">
+      <button class="action-btn update-btn" id="update-btn" onclick="updatePrices()">
+        <span class="btn-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg></span>
+        <span class="spinner"></span>
+        <span class="btn-text">Update Prices</span>
+      </button>
+      <button class="action-btn cal-btn" onclick="openCalendar()">
+        <span class="btn-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+        <span class="btn-text">Research Calendar</span>
+      </button>
+    </div>
+    <div class="update-status" id="update-status"></div>
+  </header>
+
+  <div class="stats fade-in" style="animation-delay:0.15s" id="stats-grid"></div>
+
+  <div class="sort-row fade-in" style="animation-delay:0.25s">
+    <span class="sort-label">Sort</span>
+    <button class="sort-btn active" onclick="sortCards('performance',this)">Performance</button>
+    <button class="sort-btn" onclick="sortCards('upside',this)">Upside to Target</button>
+    <button class="sort-btn" onclick="sortCards('date',this)">Most Recent</button>
+  </div>
+
+  <div class="cards" id="cards-container"></div>
+
+  <div class="footer">
+    <div class="brand-sm">RPS Research</div>
+    <div class="fine">Independent research by Rishampreet Singh · rishampreet10@gmail.com<br>Valuation models available upon request · Not investment advice</div>
+  </div>
+</div>
+
+<!-- ============ CALENDAR MODAL ============ -->
+<div class="cal-modal" id="cal-modal" onclick="if(event.target===this)closeCalendar()">
+  <div class="cal-container">
+    <div class="cal-top">
+      <div>
+        <div class="cal-title">Research Calendar</div>
+        <div class="cal-title-sub">Upcoming earnings, ex-dividends, and catalysts across coverage</div>
+      </div>
+      <button class="cal-close" onclick="closeCalendar()" aria-label="Close calendar">✕</button>
+    </div>
+
+    <div class="cal-legend">
+      <div class="cal-legend-item"><span class="cal-legend-mark" style="background:var(--amber);color:#0A0A0C">E</span>Earnings</div>
+      <div class="cal-legend-item"><span class="cal-legend-mark" style="background:var(--blue);color:#0A0A0C">X</span>Ex-Dividend</div>
+      <div class="cal-legend-item"><span class="cal-legend-mark" style="background:var(--green);color:#0A0A0C">D</span>Dividend Paid</div>
+      <div class="cal-legend-item"><span class="cal-legend-mark" style="background:#8B5CF6;color:#0A0A0C">C</span>Custom / Catalyst</div>
+    </div>
+
+    <div class="cal-nav">
+      <button class="cal-nav-btn" onclick="changeMonth(-1)" aria-label="Previous month">‹</button>
+      <div class="cal-month-label" id="cal-month-label"></div>
+      <button class="cal-nav-btn" onclick="changeMonth(1)" aria-label="Next month">›</button>
+      <button class="cal-today-btn" onclick="goToToday()">Today</button>
+    </div>
+
+    <div id="cal-body">
+      <div class="cal-loading">Loading calendar<span class="dot">…</span></div>
+    </div>
+
+    <div class="cal-upcoming" id="cal-upcoming-wrap" style="display:none">
+      <div class="cal-upcoming-title">Next 90 Days</div>
+      <div class="cal-upcoming-list" id="cal-upcoming-list"></div>
+    </div>
+
+    <div id="cal-missing-wrap"></div>
+  </div>
+</div>
+
+<script>
+const REPORTS = [
+  { ticker:"TNZ.TO", exchange:"TSX", company:"Tenaz Energy Corp.", sector:"Energy (Oil & Gas)", reportDate:"2024-12-31", reportDateLabel:"December 2024", priceAtReport:14.03, currentPrice:60.58, target:18.57, currency:"CAD", rating:"BUY", color:"#D946EF", tagline:"Navigating growth and expansion in Europe amid oil market uncertainty", file:"reports/tnz.to_report.pdf", highlights:["NOBV acquisition: production to 8,500\u20139,000 boe/d, P1 reserves to 50 MMboe","FY2025F revenue C$258.8M (+302%), EBITDA C$84.1M (+370%)","$140M senior unsecured notes, Dutch North Sea gas + Alberta oil"], whatsWrong: [] },
+  { ticker:"HUT", exchange:"NASDAQ", company:"Hut 8 Corp.", sector:"Digital Assets", reportDate:"2025-08-25", reportDateLabel:"August 2025", priceAtReport:23.45, currentPrice:66.76, target:53.45, currency:"USD", rating:"BUY", color:"#F59E0B", tagline:"AI pivot accelerating \u2014 Bitcoin dependency decreasing", file:"reports/hut_report.pdf", highlights:["Q2 revenue $41.3M (+17% QoQ), adj. EBITDA $221.2M","10,667 BTC treasury (~$1.1B), ~1,020 MW capacity","Vega 205 MW site energized, ~430 MW AI pipeline"], whatsWrong: [] },
+  { ticker:"FTG.TO", exchange:"TSX", company:"Firan Technology Group", sector:"Aerospace & Defense", reportDate:"2026-02-13", reportDateLabel:"February 2026", priceAtReport:16.55, currentPrice:19.10, target:25.0, currency:"CAD", rating:"BUY", color:"#3B82F6", tagline:"Wiring the unbreakable cockpit of tomorrow", file:"reports/ftg.to_report.pdf", highlights:["FY2025 revenue CAD $191M (+18%), adj. EBITDA $32.7M (+27%)","Record backlog CAD $148.5M, 1.10x book-to-bill","Net debt just 0.3x EBITDA, Hyderabad facility Q2 2026"], whatsWrong: [] },
+  { ticker:"PIF.TO", exchange:"TSX", company:"Polaris Renewable Energy", sector:"Renewable Energy", reportDate:"2026-04-01", reportDateLabel:"April 2026", priceAtReport:12.75, currentPrice:12.75, target:23.0, currency:"CAD", rating:"BUY", color:"#10B981", tagline:"Powering Latin America's sustainable grid", file:"reports/pif.to_report.pdf", highlights:["FY2025 revenue USD $80.5M (+6%), adj. EBITDA $56.5M","~98% contracted revenues, ~4.7% dividend yield","BESS project advancing, Mexico ~1,000 MW pipeline"], whatsWrong: ["Stock flat despite strong Q4 results and BESS approvals","Market still pricing in Latin America / hydrology risk","Broader small-cap renewable rotation limiting upside"] },
+  { ticker:"NILI.V", exchange:"TSXV", company:"Surge Battery Metals", sector:"Lithium", reportDate:"2026-03-03", reportDateLabel:"March 2026", priceAtReport:0.70, currentPrice:0.60, target:1.50, currency:"CAD", rating:"SPEC BUY", color:"#8B5CF6", tagline:"America's highest-grade lithium clay deposit", file:"reports/nili.v_report.pdf", highlights:["PEA: NPV US $9.17B, IRR 22.8%, 42-year mine life","Highest-grade US lithium clay at 3,010 ppm Li","Evolution Mining JV funds CAD $10M for PFS"], whatsWrong: ["Lithium prices ~20-30% below PEA base-case assumptions","PFS timeline slipping into late 2026","Full project financing still 2\u20133 years away"] },
+  { ticker:"AFM.V", exchange:"TSXV", company:"Alphamin Resources", sector:"Tin Mining", reportDate:"2025-12-31", reportDateLabel:"December 2025", priceAtReport:1.19, currentPrice:1.14, target:2.04, currency:"CAD", rating:"BUY", color:"#EF4444", tagline:"Mining the world's premier tin deposit", file:"reports/afm.v_report.pdf", highlights:["Q3 2025 EBITDA US$96.2M, record sales 5,132 tonnes","World's highest-grade tin mines, 3% blended Sn","Tin >US$51K/tonne, ~20% projected dividend yield"], whatsWrong: ["Tin price volatility + DRC security concerns capping upside","Recent fatality and rebel activity reminded market of jurisdictional risk","Dividend attractive but stock not reflecting record Q1 guidance"] },
+  { ticker:"MOS", exchange:"NYSE", company:"The Mosaic Company", sector:"Fertilizers", reportDate:"2025-09-01", reportDateLabel:"September 2025", priceAtReport:33.97, currentPrice:24.72, target:41.0, currency:"USD", rating:"BUY", color:"#06B6D4", tagline:"From soil to scale \u2014 the fertilizer advantage", file:"reports/mos_report.pdf", highlights:["Q2 net income $411M, diluted EPS $1.29, revenue +7% YoY","Potash realized $274/t (+14% YoY), Phosphate $665/t (+15%)","Cost savings target $250M by 2026"], whatsWrong: ["Weak phosphate demand + Brazil idling hit margins harder than expected","Fertilizer prices softened after 2025 peak","Analysts trimming targets amid Brazil asset review"] },
+  { ticker:"DEFN.V", exchange:"TSXV", company:"Defense Metals Corp", sector:"Rare Earths", reportDate:"2025-10-31", reportDateLabel:"October 2025", priceAtReport:0.33, currentPrice:0.22, target:1.20, currency:"CAD", rating:"SPEC BUY", color:"#F97316", tagline:"Turning rare earth dirt into rare earth dollars", file:"reports/defn.v_report.pdf", highlights:["PFS: Pre-tax NPV US $1.8B, IRR 24.6%, 87.3% NdPr basket","Proven reserves 25.5Mt at 2.43% TREO, debt-free","EDC US $250M Letter of Interest, DFS H1 2026"], whatsWrong: ["NdPr prices still well below 2022 peaks","Full DFS delayed into 2027","Significant dilution risk as CAD $1B+ financing remains ahead"] }
+];
+
+// ============ CUSTOM CALENDAR EVENTS ============
+// Add your own important catalysts, milestone dates, etc. here.
+// These appear alongside live earnings/dividend data on the calendar.
+// Format: { ticker: "TNZ.TO", date: "2026-05-15", label: "NOBV acquisition close (est.)" }
+const CUSTOM_EVENTS = [
+  // Example entries — edit/remove/add as needed:
+  // { ticker: "FTG.TO", date: "2026-06-30", label: "Hyderabad facility online" },
+  // { ticker: "DEFN.V", date: "2026-06-30", label: "DFS expected (H1 2026)" },
+  // { ticker: "NILI.V", date: "2026-12-15", label: "PFS target completion" },
+];
+
+const pct = (cur, base) => ((cur - base) / base) * 100;
+const fmtPct = v => `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
+const fmtPrice = (p, c) => `${c === 'USD' ? '$' : 'C$'}${p.toFixed(2)}`;
+const daysBetween = (a, b) => Math.round((new Date(b) - new Date(a)) / 864e5);
+
+let currentSort = 'performance';
+
+function sorted(arr, key) {
+  return [...arr].sort((a, b) => {
+    if (key === 'performance') return pct(b.currentPrice, b.priceAtReport) - pct(a.currentPrice, a.priceAtReport);
+    if (key === 'upside') return pct(b.target, b.currentPrice) - pct(a.target, a.currentPrice);
+    return new Date(b.reportDate) - new Date(a.reportDate);
+  });
+}
+
+function renderStats() {
+  const perfs = REPORTS.map(r => pct(r.currentPrice, r.priceAtReport));
+  const avg = perfs.reduce((a, b) => a + b, 0) / perfs.length;
+  const best = REPORTS.reduce((a, b) => pct(a.currentPrice, a.priceAtReport) > pct(b.currentPrice, b.priceAtReport) ? a : b);
+  const hitCount = REPORTS.filter(r => r.currentPrice >= r.target).length;
+  const winners = perfs.filter(p => p > 0).length;
+  document.getElementById('stats-grid').innerHTML = `
+    <div class="stat"><div class="stat-label">Coverage</div><div class="stat-value">${REPORTS.length}</div><div class="stat-sub">active names</div></div>
+    <div class="stat"><div class="stat-label">Avg Return</div><div class="stat-value" style="color:${avg >= 0 ? 'var(--green)' : 'var(--red)'}">${fmtPct(avg)}</div><div class="stat-sub">${winners}/${REPORTS.length} positive</div></div>
+    <div class="stat"><div class="stat-label">Best Pick</div><div class="stat-value" style="color:${best.color}">${best.ticker}</div><div class="stat-sub">${fmtPct(pct(best.currentPrice, best.priceAtReport))}</div></div>
+    <div class="stat"><div class="stat-label">Targets Hit</div><div class="stat-value">${hitCount}/${REPORTS.length}</div><div class="stat-sub">${(hitCount/REPORTS.length*100).toFixed(0)}% hit rate</div></div>
+  `;
+}
+
+function sparkline(perf, color, ticker) {
+  const w = 80, h = 32;
+  const seed = ticker.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  const offset = ((seed % 11) - 5) * 1.2;
+  const startY = h / 2;
+  const endY = Math.max(2, Math.min(h - 2, h / 2 - (perf / 100) * (h / 2)));
+  const midX = w * 0.5;
+  const midY = (startY + endY) / 2 + offset;
+  const path = `M0,${startY} Q${midX},${midY} ${w},${endY}`;
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="overflow:visible" aria-hidden="true">
+    <path d="${path}" fill="none" stroke="${color}" stroke-width="1.5" opacity="0.5"/>
+    <circle cx="${w}" cy="${endY}" r="2.5" fill="${color}" opacity="0.8"/>
+  </svg>`;
+}
+
+function renderCards() {
+  const arr = sorted(REPORTS, currentSort);
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('cards-container').innerHTML = arr.map((r, i) => {
+    const perf = pct(r.currentPrice, r.priceAtReport);
+    const isLagging = perf < 5;
+    const remainingUpside = ((r.target - r.currentPrice) / r.target) * 100;
+    const aboveTargetBy = ((r.currentPrice - r.target) / r.target) * 100;
+    const days = daysBetween(r.reportDate, today);
+    const hit = r.currentPrice >= r.target;
+    const barW = Math.min(hit ? aboveTargetBy : remainingUpside, 350) / 350 * 100;
+    const isSpec = r.rating.includes('SPEC');
+
+    return `
+    <div class="card fade-in" id="card-${r.ticker}" style="animation-delay:${0.3 + i * .08}s" onclick="this.classList.toggle('open')">
+      <div class="card-accent" style="background:linear-gradient(90deg,${r.color},transparent)"></div>
+      <div class="card-body">
+        <div class="card-header">
+          <div>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+              <span class="ticker">${r.ticker}</span>
+              <span class="badge ${isSpec ? 'badge-spec' : 'badge-buy'}">${r.rating}</span>
+              ${hit ? '<span class="badge-target">TARGET HIT ✓</span>' : ''}
+              <span class="exchange">${r.exchange}</span>
+            </div>
+            <div class="company">${r.company}</div>
+            <div class="sector">${r.sector} · ${r.reportDateLabel}</div>
+          </div>
+          <div style="text-align:right">
+            <div class="perf ${perf >= 0 ? 'up' : 'down'}">${fmtPct(perf)}</div>
+            <div class="days">${days} days</div>
+          </div>
+        </div>
+        <div class="prices-row">
+          <div style="display:flex;gap:20px;align-items:center">
+            <div class="price-block"><label>Entry</label><div class="val" style="color:rgba(255,255,255,.6)">${fmtPrice(r.priceAtReport, r.currency)}</div></div>
+            <div class="price-block"><label>Current</label><div class="val" style="color:#fff;font-weight:600">${fmtPrice(r.currentPrice, r.currency)}</div></div>
+            <div class="price-block"><label>Target</label><div class="val" style="color:${r.color}">${fmtPrice(r.target, r.currency)}</div></div>
+          </div>
+          ${sparkline(perf, r.color, r.ticker)}
+        </div>
+        <div class="upside-row">
+          <div class="meta">
+            <span>${hit ? 'Above target by' : 'Remaining upside to target'}</span>
+            <span style="color:${hit ? 'var(--green)' : r.color}">${hit ? aboveTargetBy.toFixed(0) + '% above' : '+' + remainingUpside.toFixed(0) + '%'}</span>
+          </div>
+          <div class="bar-track"><div class="bar-fill" style="width:${barW}%;background:linear-gradient(90deg,${hit ? 'var(--green)' : r.color}88,${hit ? 'var(--green)' : r.color})"></div></div>
+        </div>
+      </div>
+      <div class="card-expand">
+        <div class="tagline" style="color:${r.color}">"${r.tagline}"</div>
+        ${r.highlights.map(h => `<div class="highlight"><div class="dot" style="background:${r.color}"></div><span>${h}</span></div>`).join('')}
+
+        ${isLagging && r.whatsWrong.length ? `
+        <div class="reality-check" id="rc-${r.ticker}">
+          <div class="reality-check-header">
+            ⚠️ What's Wrong / Reality Check
+            <button onclick="event.stopPropagation(); refreshRealityCheck('${r.ticker}')" class="refresh-btn">Refresh</button>
+          </div>
+          <ul id="bullets-${r.ticker}">
+            ${r.whatsWrong.map(b => `<li>${b}</li>`).join('')}
+          </ul>
+          <div style="font-size:10px;color:#FCA5A5;margin-top:8px;">Last checked: April 12, 2026 • Market data + news</div>
+        </div>` : ''}
+
+        <a href="${r.file}" download class="dl-btn" style="background:${r.color}15;border:1px solid ${r.color}40;color:${r.color}" onclick="event.stopPropagation()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download Full Report
+        </a>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+window.refreshRealityCheck = async function(ticker) {
+  const container = document.getElementById(`rc-${ticker}`);
+  const bulletsContainer = document.getElementById(`bullets-${ticker}`);
+  if (!container) return;
+  container.style.opacity = '0.6';
+  bulletsContainer.innerHTML = `<li style="color:#FCA5A5">🔄 Fetching latest news for ${ticker}...</li>`;
+  try {
+    const res = await fetch(`/api/reality-check?ticker=${encodeURIComponent(ticker)}`);
+    if (!res.ok) throw new Error(`Server responded with ${res.status}`);
+    const data = await res.json();
+    if (data.bullets && data.bullets.length) {
+      bulletsContainer.innerHTML = data.bullets.map(b => `<li>${b}</li>`).join('');
+    } else {
+      bulletsContainer.innerHTML = `<li style="color:#FCA5A5">No new insights at the moment.</li>`;
+    }
+  } catch (err) {
+    bulletsContainer.innerHTML = `<li style="color:#EF4444">Could not fetch latest news. Try again later.</li>`;
+  } finally {
+    container.style.opacity = '1';
+  }
+};
+
+function sortCards(key, btn) {
+  currentSort = key;
+  document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderCards();
+}
+
+async function updatePrices() {
+  const btn = document.getElementById('update-btn');
+  const status = document.getElementById('update-status');
+  btn.disabled = true;
+  btn.classList.add('loading');
+  btn.querySelector('.btn-text').textContent = 'Updating…';
+  status.innerHTML = '';
+
+  const tickers = REPORTS.map(r => r.ticker).join(',');
+  try {
+    status.innerHTML = `<span style="color:var(--text-dim)">Fetching prices for ${REPORTS.length} tickers…</span>`;
+    const res = await fetch(`/api/prices?tickers=${encodeURIComponent(tickers)}`);
+    if (!res.ok) throw new Error(`Server responded with ${res.status}`);
+    const data = await res.json();
+
+    if (data.error) {
+      status.innerHTML = `<span style="color:var(--red)">Error: ${data.error}</span>`;
+      return;
+    }
+
+    let updated = 0, failed = 0;
+    const lines = [];
+    for (const r of REPORTS) {
+      const p = data.prices[r.ticker];
+      if (p !== null && p !== undefined) {
+        r.currentPrice = p;
+        updated++;
+        lines.push(`<span style="color:var(--green)">✓ ${r.ticker} → ${fmtPrice(p, r.currency)}</span>`);
+      } else {
+        failed++;
+        const err = data.errors?.[r.ticker] || 'No data';
+        lines.push(`<span style="color:var(--red)">✗ ${r.ticker}: ${err}</span>`);
+      }
+    }
+
+    status.innerHTML = lines.join('<br>');
+    document.getElementById('update-date').textContent = new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' });
+    renderStats();
+    renderCards();
+  } catch (err) {
+    status.innerHTML = `<span style="color:var(--red)">Could not reach price API: ${err.message}</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove('loading');
+    btn.querySelector('.btn-text').textContent = 'Update Prices';
+  }
+}
+
+// ============ CALENDAR LOGIC ============
+const TYPE_STYLE = {
+  earnings:     { color: 'var(--amber)', mark: 'E', solid: '#F59E0B' },
+  ex_dividend:  { color: 'var(--blue)',  mark: 'X', solid: '#3B82F6' },
+  dividend:     { color: 'var(--green)', mark: 'D', solid: '#10B981' },
+  custom:       { color: '#8B5CF6',      mark: 'C', solid: '#8B5CF6' },
+};
+
+let calState = {
+  cursor: new Date(), // first of month currently viewed
+  events: [],         // live events from API
+  loaded: false,
+  loading: false,
+  noData: [],
+};
+
+function openCalendar() {
+  document.getElementById('cal-modal').classList.add('open');
+  document.body.style.overflow = 'hidden';
+  calState.cursor = new Date();
+  calState.cursor.setDate(1);
+  renderCalendarMonth();
+  if (!calState.loaded && !calState.loading) loadCalendar();
+}
+function closeCalendar() {
+  document.getElementById('cal-modal').classList.remove('open');
+  document.body.style.overflow = '';
+}
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeCalendar();
+});
+
+function changeMonth(delta) {
+  calState.cursor.setMonth(calState.cursor.getMonth() + delta);
+  renderCalendarMonth();
+}
+function goToToday() {
+  calState.cursor = new Date();
+  calState.cursor.setDate(1);
+  renderCalendarMonth();
+}
+
+async function loadCalendar() {
+  calState.loading = true;
+  const tickers = REPORTS.map(r => r.ticker).join(',');
+  try {
+    const res = await fetch(`/api/calendar?tickers=${encodeURIComponent(tickers)}`);
+    if (!res.ok) throw new Error(`Server responded with ${res.status}`);
+    const data = await res.json();
+    calState.events = (data.events || []).map(e => ({ ...e, source: 'live' }));
+    calState.noData = data.noData || [];
+    calState.loaded = true;
+  } catch (err) {
+    console.error('Calendar load failed:', err);
+    calState.events = [];
+    calState.noData = REPORTS.map(r => r.ticker);
+  } finally {
+    calState.loading = false;
+    renderCalendarMonth();
+  }
+}
+
+function allEvents() {
+  const custom = CUSTOM_EVENTS.map(e => ({ ...e, type: 'custom', source: 'custom' }));
+  return [...calState.events, ...custom];
+}
+
+function tickerColor(ticker) {
+  const r = REPORTS.find(x => x.ticker === ticker);
+  return r ? r.color : '#888';
+}
+
+function renderCalendarMonth() {
+  const y = calState.cursor.getFullYear();
+  const m = calState.cursor.getMonth();
+  const monthName = calState.cursor.toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
+  document.getElementById('cal-month-label').textContent = monthName;
+
+  const body = document.getElementById('cal-body');
+  if (calState.loading && !calState.loaded) {
+    body.innerHTML = `<div class="cal-loading">Loading calendar<span class="dot">…</span></div>`;
+    document.getElementById('cal-upcoming-wrap').style.display = 'none';
+    return;
+  }
+
+  // Group events by yyyy-mm-dd
+  const byDate = {};
+  for (const e of allEvents()) {
+    (byDate[e.date] = byDate[e.date] || []).push(e);
+  }
+
+  // Build 6-week grid starting from Sunday of week containing the 1st
+  const firstOfMonth = new Date(y, m, 1);
+  const gridStart = new Date(firstOfMonth);
+  gridStart.setDate(firstOfMonth.getDate() - firstOfMonth.getDay());
+
+  const todayISO = new Date().toISOString().split('T')[0];
+  const dowHeaders = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+    .map(d => `<div class="cal-dow">${d}</div>`).join('');
+
+  let cells = '';
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(gridStart);
+    d.setDate(gridStart.getDate() + i);
+    const iso = d.toISOString().split('T')[0];
+    const inMonth = d.getMonth() === m;
+    const isToday = iso === todayISO;
+    const events = (byDate[iso] || []);
+    const maxVisible = 3;
+    const visibleEvents = events.slice(0, maxVisible);
+    const moreCount = events.length - visibleEvents.length;
+
+    const eventsHTML = visibleEvents.map(ev => {
+      const style = TYPE_STYLE[ev.type] || TYPE_STYLE.custom;
+      const color = tickerColor(ev.ticker);
+      const label = `${ev.ticker} — ${ev.label || ev.type}${ev.estimate ? ' (est.)' : ''}`;
+      return `<div class="cal-event" title="${label}"
+        style="background:${color}18;border-color:${color}40;color:${color}"
+        onclick="event.stopPropagation(); jumpToTicker('${ev.ticker}')">
+        <span class="cal-event-mark" style="background:${style.solid}">${style.mark}</span>
+        <span class="cal-event-ticker">${ev.ticker}</span>
+      </div>`;
+    }).join('');
+
+    cells += `
+      <div class="cal-cell ${inMonth ? '' : 'other-month'} ${isToday ? 'today' : ''}">
+        <div class="cal-date">${d.getDate()}</div>
+        ${eventsHTML}
+        ${moreCount > 0 ? `<div class="cal-more">+${moreCount} more</div>` : ''}
+      </div>`;
+  }
+
+  body.innerHTML = `<div class="cal-grid">${dowHeaders}${cells}</div>`;
+
+  renderUpcoming();
+  renderMissing();
+}
+
+function renderUpcoming() {
+  const wrap = document.getElementById('cal-upcoming-wrap');
+  const list = document.getElementById('cal-upcoming-list');
+  const todayISO = new Date().toISOString().split('T')[0];
+  const horizon = new Date();
+  horizon.setDate(horizon.getDate() + 90);
+  const horizonISO = horizon.toISOString().split('T')[0];
+
+  const upcoming = allEvents()
+    .filter(e => e.date >= todayISO && e.date <= horizonISO)
+    .sort((a,b) => a.date.localeCompare(b.date));
+
+  if (upcoming.length === 0) {
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = 'block';
+
+  list.innerHTML = upcoming.map(ev => {
+    const style = TYPE_STYLE[ev.type] || TYPE_STYLE.custom;
+    const color = tickerColor(ev.ticker);
+    const d = new Date(ev.date + 'T00:00:00');
+    const dateLabel = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const daysAway = Math.max(0, Math.round((d - new Date()) / 864e5));
+    const label = ev.label || ev.type;
+    return `<div class="cal-upcoming-item" onclick="jumpToTicker('${ev.ticker}')">
+      <span class="cal-upcoming-date">${dateLabel}</span>
+      <span class="cal-event-mark" style="background:${style.solid}">${style.mark}</span>
+      <span class="cal-upcoming-ticker" style="color:${color}">${ev.ticker}</span>
+      <span class="cal-upcoming-label">${label}${ev.estimate ? ' (est.)' : ''}</span>
+      <span class="cal-upcoming-when">in ${daysAway}d</span>
+    </div>`;
+  }).join('');
+}
+
+function renderMissing() {
+  const wrap = document.getElementById('cal-missing-wrap');
+  if (!calState.loaded) { wrap.innerHTML = ''; return; }
+  const missing = calState.noData || [];
+  if (missing.length === 0) { wrap.innerHTML = ''; return; }
+  wrap.innerHTML = `<div class="cal-missing">
+    <strong>No live calendar data</strong> returned for: ${missing.join(', ')}.
+    This is common for small-cap and TSXV names. Add manual dates to <code>CUSTOM_EVENTS</code> in <code>index.html</code> to display them.
+  </div>`;
+}
+
+function jumpToTicker(ticker) {
+  closeCalendar();
+  setTimeout(() => {
+    const card = document.getElementById(`card-${ticker}`);
+    if (card) {
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      card.classList.add('open', 'highlight-flash');
+      setTimeout(() => card.classList.remove('highlight-flash'), 2000);
+    }
+  }, 300);
+}
+
+renderStats();
+renderCards();
+</script>
+</body>
+</html>
