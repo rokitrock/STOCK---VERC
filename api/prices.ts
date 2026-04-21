@@ -1,7 +1,8 @@
 // api/prices.ts — Vercel serverless function
-// Fetches current prices from Financial Modeling Prep using the modern
-// /stable/batch-quote endpoint (legacy /api/v3/ endpoints return 403 for
-// accounts created after Aug 31, 2025).
+// Fetches current prices from FMP's free-tier /stable/quote endpoint.
+//
+// Batch-quote is a paid endpoint, so we fire single-symbol quotes in parallel.
+// 8 tickers = 8 API calls per refresh, well within the 250/day free budget.
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 type FmpQuote = {
@@ -10,25 +11,22 @@ type FmpQuote = {
   name?: string;
 };
 
-async function fetchPricesFromFMP(
-  tickers: string[],
-  apiKey: string
-): Promise<{
-  prices: Record<string, number | null>;
-  errors: Record<string, string>;
-}> {
-  const prices: Record<string, number | null> = Object.fromEntries(
-    tickers.map((t) => [t, null as number | null])
-  );
-  const errors: Record<string, string> = {};
+type SingleResult = {
+  ticker: string;
+  price: number | null;
+  error?: string;
+};
 
-  // FMP stable batch endpoint: symbols as comma-separated query param
-  const url = `https://financialmodelingprep.com/stable/batch-quote?symbols=${encodeURIComponent(
-    tickers.join(",")
+async function fetchOnePrice(
+  ticker: string,
+  apiKey: string
+): Promise<SingleResult> {
+  const url = `https://financialmodelingprep.com/stable/quote?symbol=${encodeURIComponent(
+    ticker
   )}&apikey=${encodeURIComponent(apiKey)}`;
 
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 9000);
+  const timer = setTimeout(() => ctrl.abort(), 7000);
 
   try {
     const res = await fetch(url, {
@@ -37,42 +35,42 @@ async function fetchPricesFromFMP(
     });
 
     if (!res.ok) {
-      // Read body to expose actual FMP error message (e.g. "Legacy Endpoint", "Limit Reach")
       const bodyText = await res.text().catch(() => "");
-      const snippet = bodyText.slice(0, 150).replace(/\s+/g, " ").trim();
-      const errMsg = `FMP HTTP ${res.status}${snippet ? " — " + snippet : ""}`;
-      for (const t of tickers) errors[t] = errMsg;
-      return { prices, errors };
+      const snippet = bodyText.slice(0, 120).replace(/\s+/g, " ").trim();
+      return {
+        ticker,
+        price: null,
+        error: `FMP HTTP ${res.status}${snippet ? " — " + snippet : ""}`,
+      };
     }
 
-    const data = (await res.json()) as FmpQuote[] | { "Error Message"?: string };
+    const data = (await res.json()) as
+      | FmpQuote[]
+      | FmpQuote
+      | { "Error Message"?: string };
 
-    if (!Array.isArray(data)) {
+    // FMP /stable/quote returns an array with one entry (or empty if unknown ticker)
+    const quote: FmpQuote | undefined = Array.isArray(data)
+      ? data[0]
+      : (data as FmpQuote)?.symbol
+      ? (data as FmpQuote)
+      : undefined;
+
+    if (!quote) {
       const errMsg =
-        (data as any)?.["Error Message"] || "FMP returned non-array response";
-      for (const t of tickers) errors[t] = errMsg;
-      return { prices, errors };
+        (data as any)?.["Error Message"] ||
+        "Ticker not found or no data returned";
+      return { ticker, price: null, error: errMsg };
     }
 
-    const bySymbol = new Map<string, FmpQuote>();
-    for (const q of data) {
-      if (q?.symbol) bySymbol.set(q.symbol.toUpperCase(), q);
+    if (typeof quote.price !== "number" || isNaN(quote.price)) {
+      return { ticker, price: null, error: "Invalid price in response" };
     }
 
-    for (const t of tickers) {
-      const q = bySymbol.get(t.toUpperCase());
-      if (q && typeof q.price === "number" && !isNaN(q.price)) {
-        prices[t] = Math.round(q.price * 100) / 100;
-      } else {
-        errors[t] = "Not found in FMP response";
-      }
-    }
-
-    return { prices, errors };
+    return { ticker, price: Math.round(quote.price * 100) / 100 };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown";
-    for (const t of tickers) errors[t] = `FMP fetch failed: ${msg}`;
-    return { prices, errors };
+    return { ticker, price: null, error: `Fetch failed: ${msg}` };
   } finally {
     clearTimeout(timer);
   }
@@ -106,18 +104,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    const { prices, errors } = await fetchPricesFromFMP(tickers, apiKey);
+    // Parallel single-symbol fetches
+    const results = await Promise.all(
+      tickers.map((t) => fetchOnePrice(t, apiKey))
+    );
 
-    const cleanErrors: Record<string, string> = {};
-    for (const [k, v] of Object.entries(errors)) {
-      if (prices[k] === null && v) cleanErrors[k] = v;
+    const prices: Record<string, number | null> = {};
+    const errors: Record<string, string> = {};
+    for (const r of results) {
+      prices[r.ticker] = r.price;
+      if (r.error) errors[r.ticker] = r.error;
     }
 
     res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=300");
     res.status(200).json({
       prices,
-      errors: Object.keys(cleanErrors).length > 0 ? cleanErrors : undefined,
-      source: "fmp-stable",
+      errors: Object.keys(errors).length > 0 ? errors : undefined,
+      source: "fmp-stable-single",
       updatedAt: new Date().toISOString(),
     });
   } catch (err) {
