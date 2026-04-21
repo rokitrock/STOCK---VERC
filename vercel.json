@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "cleanUrls": true,
+  "functions": {
+    "api/hello.ts": { "runtime": "@vercel/node@5.0.0" },
+    "api/prices.ts": { "runtime": "@vercel/node@5.0.0" },
+    "api/calendar.ts": { "runtime": "@vercel/node@5.0.0" },
+    "api/reality-check.ts": { "runtime": "@vercel/node@5.0.0" }
+  }
+}
