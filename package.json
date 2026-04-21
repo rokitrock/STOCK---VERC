@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "RPS Research — Equity research coverage site",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "vercel dev",
     "deploy": "vercel --prod"
