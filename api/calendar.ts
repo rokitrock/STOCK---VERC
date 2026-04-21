@@ -1,13 +1,12 @@
 // api/calendar.ts — Vercel serverless function
-// Earnings, ex-dividend, and dividend payment dates.
+// Earnings, ex-dividend, and dividend payment dates from FMP /stable/ endpoints.
 //
-// Strategy:
-//  1. Dividend data from FMP (/api/v3/historical-price-full/stock_dividend/{symbol})
-//     — reliable on free tier, includes past + projected ex/pay dates.
-//  2. Earnings data from Yahoo quoteSummary — less rate-limited than chart
-//     endpoint, with cookie+crumb auth fallback.
-//  3. If any source fails for a ticker, we gracefully return empty events
-//     for that ticker rather than erroring the whole response.
+// Uses per-symbol endpoints that work on the free tier:
+//   /stable/dividends?symbol=X   — ex-dividend + payment dates
+//   /stable/earnings?symbol=X    — past + upcoming earnings dates
+//
+// If a specific ticker isn't covered (common for TSXV small-caps), it's
+// reported in `noData` and users can add manual events via CUSTOM_EVENTS.
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 type CalendarEvent = {
@@ -18,14 +17,29 @@ type CalendarEvent = {
   estimate?: boolean;
 };
 
-// ---------- FMP dividends ----------
-async function fetchDividendsFromFMP(
+const PAST_DAYS = 60;
+const FUTURE_DAYS_DIV = 120;
+const FUTURE_DAYS_EARN = 180;
+
+function windowISO(pastDays: number, futureDays: number) {
+  const now = new Date();
+  const past = new Date(now);
+  past.setDate(now.getDate() - pastDays);
+  const future = new Date(now);
+  future.setDate(now.getDate() + futureDays);
+  return {
+    pastISO: past.toISOString().split("T")[0],
+    futureISO: future.toISOString().split("T")[0],
+  };
+}
+
+async function fetchDividends(
   ticker: string,
   apiKey: string
 ): Promise<CalendarEvent[]> {
-  const url = `https://financialmodelingprep.com/api/v3/historical-price-full/stock_dividend/${encodeURIComponent(
+  const url = `https://financialmodelingprep.com/stable/dividends?symbol=${encodeURIComponent(
     ticker
-  )}?apikey=${encodeURIComponent(apiKey)}`;
+  )}&apikey=${encodeURIComponent(apiKey)}`;
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 7000);
@@ -37,28 +51,20 @@ async function fetchDividendsFromFMP(
     });
     if (!res.ok) return [];
 
-    const data = (await res.json()) as {
-      historical?: Array<{
-        date?: string;
-        paymentDate?: string;
-        recordDate?: string;
-        declarationDate?: string;
-      }>;
-    };
+    const data = (await res.json()) as Array<{
+      symbol?: string;
+      date?: string; // ex-dividend date in FMP
+      paymentDate?: string;
+      recordDate?: string;
+      declarationDate?: string;
+    }>;
+    if (!Array.isArray(data)) return [];
 
+    const { pastISO, futureISO } = windowISO(PAST_DAYS, FUTURE_DAYS_DIV);
     const events: CalendarEvent[] = [];
-    const today = new Date().toISOString().split("T")[0];
-    const horizon = new Date();
-    horizon.setDate(horizon.getDate() + 120);
-    const horizonISO = horizon.toISOString().split("T")[0];
-    // Also pull recent history (past 60 days) so user can see recent events
-    const past = new Date();
-    past.setDate(past.getDate() - 60);
-    const pastISO = past.toISOString().split("T")[0];
 
-    for (const row of data.historical ?? []) {
-      // `date` in FMP's dividend response = ex-dividend date
-      if (row.date && row.date >= pastISO && row.date <= horizonISO) {
+    for (const row of data) {
+      if (row.date && row.date >= pastISO && row.date <= futureISO) {
         events.push({
           ticker,
           date: row.date,
@@ -69,7 +75,7 @@ async function fetchDividendsFromFMP(
       if (
         row.paymentDate &&
         row.paymentDate >= pastISO &&
-        row.paymentDate <= horizonISO
+        row.paymentDate <= futureISO
       ) {
         events.push({
           ticker,
@@ -88,14 +94,13 @@ async function fetchDividendsFromFMP(
   }
 }
 
-// ---------- FMP earnings calendar ----------
-async function fetchEarningsFromFMP(
+async function fetchEarnings(
   ticker: string,
   apiKey: string
 ): Promise<CalendarEvent[]> {
-  const url = `https://financialmodelingprep.com/api/v3/historical/earning_calendar/${encodeURIComponent(
+  const url = `https://financialmodelingprep.com/stable/earnings?symbol=${encodeURIComponent(
     ticker
-  )}?apikey=${encodeURIComponent(apiKey)}`;
+  )}&apikey=${encodeURIComponent(apiKey)}`;
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 7000);
@@ -107,19 +112,17 @@ async function fetchEarningsFromFMP(
     });
     if (!res.ok) return [];
 
-    const data = (await res.json()) as Array<{ date?: string; symbol?: string }>;
+    const data = (await res.json()) as Array<{
+      symbol?: string;
+      date?: string;
+    }>;
     if (!Array.isArray(data)) return [];
 
-    const past = new Date();
-    past.setDate(past.getDate() - 60);
-    const pastISO = past.toISOString().split("T")[0];
-    const horizon = new Date();
-    horizon.setDate(horizon.getDate() + 180);
-    const horizonISO = horizon.toISOString().split("T")[0];
-
+    const { pastISO, futureISO } = windowISO(PAST_DAYS, FUTURE_DAYS_EARN);
     const events: CalendarEvent[] = [];
+
     for (const row of data) {
-      if (row.date && row.date >= pastISO && row.date <= horizonISO) {
+      if (row.date && row.date >= pastISO && row.date <= futureISO) {
         events.push({
           ticker,
           date: row.date,
@@ -136,7 +139,6 @@ async function fetchEarningsFromFMP(
   }
 }
 
-// ---------- handler ----------
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const tickersParam = req.query.tickers;
@@ -162,12 +164,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .map((t) => t.trim())
       .filter(Boolean);
 
-    // Fetch dividends + earnings for all tickers in parallel
     const results = await Promise.all(
       tickers.map(async (ticker) => {
         const [divs, earnings] = await Promise.all([
-          fetchDividendsFromFMP(ticker, apiKey),
-          fetchEarningsFromFMP(ticker, apiKey),
+          fetchDividends(ticker, apiKey),
+          fetchEarnings(ticker, apiKey),
         ]);
         return [...divs, ...earnings];
       })
@@ -175,7 +176,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const allEvents: CalendarEvent[] = results.flat();
 
-    // De-duplicate
     const seen = new Set<string>();
     const events = allEvents.filter((e) => {
       const key = `${e.ticker}|${e.date}|${e.type}`;
@@ -193,7 +193,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(200).json({
       events,
       noData,
-      source: "fmp",
+      source: "fmp-stable",
       updatedAt: new Date().toISOString(),
     });
   } catch (err) {
