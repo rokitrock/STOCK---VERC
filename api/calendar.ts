@@ -18,9 +18,10 @@ async function fetchCalendar(ticker: string): Promise<CalendarEvent[]> {
     ticker
   )}?modules=calendarEvents,summaryDetail`;
 
+  const yahooUrl = `https://${yahooHost}${yahooPath}`;
   const url = proxyBase
-    ? `${proxyBase.replace(/\/$/, "")}/${yahooHost}${yahooPath}`
-    : `https://${yahooHost}${yahooPath}`;
+    ? `${proxyBase.replace(/\/$/, "")}/?url=${encodeURIComponent(yahooUrl)}`
+    : yahooUrl;
 
   const headers: Record<string, string> = {
     "User-Agent":

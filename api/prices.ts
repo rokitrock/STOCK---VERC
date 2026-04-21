@@ -20,11 +20,11 @@ async function fetchPriceFromYahoo(
     ticker
   )}?interval=1d&range=1d`;
 
-  // If a proxy is configured, route through it. The Worker expects the Yahoo
-  // host+path appended after its base URL.
+  // If a proxy is configured, send the full Yahoo URL as a ?url= query param.
+  const yahooUrl = `${host}${yahooPath}`;
   const url = proxyBase
-    ? `${proxyBase.replace(/\/$/, "")}/${host.replace(/^https?:\/\//, "")}${yahooPath}`
-    : `${host}${yahooPath}`;
+    ? `${proxyBase.replace(/\/$/, "")}/?url=${encodeURIComponent(yahooUrl)}`
+    : yahooUrl;
 
   const headers: Record<string, string> = {
     "User-Agent":
