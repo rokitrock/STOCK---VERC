@@ -1,79 +1,106 @@
 // api/prices.ts — Vercel serverless function
-// Fetches current prices from FMP's free-tier /stable/quote endpoint.
+// Mirrors the Netlify implementation that works reliably, plus:
+//   - More realistic browser headers (matches what a browser actually sends)
+//   - Host rotation (query1 → query2 on failure)
+//   - Optional proxy support: if YAHOO_PROXY_URL is set, all Yahoo requests
+//     route through it (use a Cloudflare Worker — see worker.js in repo root).
 //
-// Batch-quote is a paid endpoint, so we fire single-symbol quotes in parallel.
-// 8 tickers = 8 API calls per refresh, well within the 250/day free budget.
+// If Yahoo blocks Vercel's IPs with 429, set YAHOO_PROXY_URL in Vercel env vars
+// to a Cloudflare Worker URL that forwards requests.
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-type FmpQuote = {
-  symbol: string;
-  price: number | null;
-  name?: string;
-};
+type FetchResult = { price: number | null; status: number; error?: string };
 
-type SingleResult = {
-  ticker: string;
-  price: number | null;
-  error?: string;
-};
-
-async function fetchOnePrice(
+async function fetchPriceFromYahoo(
   ticker: string,
-  apiKey: string
-): Promise<SingleResult> {
-  const url = `https://financialmodelingprep.com/stable/quote?symbol=${encodeURIComponent(
+  host: string
+): Promise<FetchResult> {
+  const proxyBase = process.env.YAHOO_PROXY_URL;
+  const yahooPath = `/v8/finance/chart/${encodeURIComponent(
     ticker
-  )}&apikey=${encodeURIComponent(apiKey)}`;
+  )}?interval=1d&range=1d`;
+
+  // If a proxy is configured, route through it. The Worker expects the Yahoo
+  // host+path appended after its base URL.
+  const url = proxyBase
+    ? `${proxyBase.replace(/\/$/, "")}/${host.replace(/^https?:\/\//, "")}${yahooPath}`
+    : `${host}${yahooPath}`;
+
+  const headers: Record<string, string> = {
+    "User-Agent":
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    Accept:
+      "application/json,text/plain,*/*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    Referer: "https://finance.yahoo.com/",
+    Origin: "https://finance.yahoo.com",
+  };
 
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 7000);
+  const timer = setTimeout(() => ctrl.abort(), 8000);
 
   try {
-    const res = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json" },
-      signal: ctrl.signal,
-    });
+    const res = await fetch(url, { headers, signal: ctrl.signal });
 
     if (!res.ok) {
-      const bodyText = await res.text().catch(() => "");
-      const snippet = bodyText.slice(0, 120).replace(/\s+/g, " ").trim();
       return {
-        ticker,
         price: null,
-        error: `FMP HTTP ${res.status}${snippet ? " — " + snippet : ""}`,
+        status: res.status,
+        error: `HTTP ${res.status}`,
       };
     }
 
-    const data = (await res.json()) as
-      | FmpQuote[]
-      | FmpQuote
-      | { "Error Message"?: string };
+    const data = (await res.json()) as any;
 
-    // FMP /stable/quote returns an array with one entry (or empty if unknown ticker)
-    const quote: FmpQuote | undefined = Array.isArray(data)
-      ? data[0]
-      : (data as FmpQuote)?.symbol
-      ? (data as FmpQuote)
+    if (data?.chart?.error || !data?.chart?.result?.length) {
+      return {
+        price: null,
+        status: 200,
+        error: "No data returned",
+      };
+    }
+
+    const result = data.chart.result[0];
+    const closeArr = result.indicators?.quote?.[0]?.close;
+    const fallback = Array.isArray(closeArr)
+      ? closeArr.filter((v: number | null) => v !== null).pop()
       : undefined;
+    const price = result.meta?.regularMarketPrice ?? fallback;
 
-    if (!quote) {
-      const errMsg =
-        (data as any)?.["Error Message"] ||
-        "Ticker not found or no data returned";
-      return { ticker, price: null, error: errMsg };
+    if (price === null || price === undefined || isNaN(price)) {
+      return { price: null, status: 200, error: "Invalid price" };
     }
 
-    if (typeof quote.price !== "number" || isNaN(quote.price)) {
-      return { ticker, price: null, error: "Invalid price in response" };
-    }
-
-    return { ticker, price: Math.round(quote.price * 100) / 100 };
+    return { price: Math.round(price * 100) / 100, status: 200 };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "unknown";
-    return { ticker, price: null, error: `Fetch failed: ${msg}` };
+    return {
+      price: null,
+      status: 0,
+      error: err instanceof Error ? err.message : "Unknown error",
+    };
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function fetchPrice(
+  ticker: string
+): Promise<{ ticker: string; price: number | null; error?: string }> {
+  const hosts = [
+    "https://query1.finance.yahoo.com",
+    "https://query2.finance.yahoo.com",
+  ];
+
+  let lastError = "";
+  for (const host of hosts) {
+    const r = await fetchPriceFromYahoo(ticker, host);
+    if (r.price !== null) return { ticker, price: r.price };
+    lastError = r.error || `HTTP ${r.status}`;
+    // If we got a 429 on query1, still try query2 (different edge)
+  }
+
+  return { ticker, price: null, error: lastError };
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -83,14 +110,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (!tickersStr) {
       res.status(400).json({ error: "Missing 'tickers' query parameter" });
-      return;
-    }
-
-    const apiKey = process.env.FMP_API_KEY;
-    if (!apiKey) {
-      res.status(500).json({
-        error: "FMP_API_KEY environment variable not configured on Vercel.",
-      });
       return;
     }
 
@@ -104,10 +123,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    // Parallel single-symbol fetches
-    const results = await Promise.all(
-      tickers.map((t) => fetchOnePrice(t, apiKey))
-    );
+    const results = await Promise.all(tickers.map(fetchPrice));
 
     const prices: Record<string, number | null> = {};
     const errors: Record<string, string> = {};
@@ -120,7 +136,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(200).json({
       prices,
       errors: Object.keys(errors).length > 0 ? errors : undefined,
-      source: "fmp-stable-single",
+      proxied: !!process.env.YAHOO_PROXY_URL,
       updatedAt: new Date().toISOString(),
     });
   } catch (err) {

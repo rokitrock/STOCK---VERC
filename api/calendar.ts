@@ -1,138 +1,90 @@
 // api/calendar.ts — Vercel serverless function
-// Earnings, ex-dividend, and dividend payment dates from FMP /stable/ endpoints.
-//
-// Uses per-symbol endpoints that work on the free tier:
-//   /stable/dividends?symbol=X   — ex-dividend + payment dates
-//   /stable/earnings?symbol=X    — past + upcoming earnings dates
-//
-// If a specific ticker isn't covered (common for TSXV small-caps), it's
-// reported in `noData` and users can add manual events via CUSTOM_EVENTS.
+// Yahoo Finance quoteSummary for earnings/dividend dates.
+// Supports same YAHOO_PROXY_URL fallback as prices.ts.
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 type CalendarEvent = {
   ticker: string;
-  date: string; // yyyy-mm-dd
+  date: string;
   type: "earnings" | "ex_dividend" | "dividend";
   label: string;
   estimate?: boolean;
 };
 
-const PAST_DAYS = 60;
-const FUTURE_DAYS_DIV = 120;
-const FUTURE_DAYS_EARN = 180;
+async function fetchCalendar(ticker: string): Promise<CalendarEvent[]> {
+  const proxyBase = process.env.YAHOO_PROXY_URL;
+  const yahooHost = "query1.finance.yahoo.com";
+  const yahooPath = `/v10/finance/quoteSummary/${encodeURIComponent(
+    ticker
+  )}?modules=calendarEvents,summaryDetail`;
 
-function windowISO(pastDays: number, futureDays: number) {
-  const now = new Date();
-  const past = new Date(now);
-  past.setDate(now.getDate() - pastDays);
-  const future = new Date(now);
-  future.setDate(now.getDate() + futureDays);
-  return {
-    pastISO: past.toISOString().split("T")[0],
-    futureISO: future.toISOString().split("T")[0],
+  const url = proxyBase
+    ? `${proxyBase.replace(/\/$/, "")}/${yahooHost}${yahooPath}`
+    : `https://${yahooHost}${yahooPath}`;
+
+  const headers: Record<string, string> = {
+    "User-Agent":
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    Accept: "application/json,text/plain,*/*",
+    "Accept-Language": "en-US,en;q=0.9",
+    Referer: "https://finance.yahoo.com/",
+    Origin: "https://finance.yahoo.com",
   };
-}
-
-async function fetchDividends(
-  ticker: string,
-  apiKey: string
-): Promise<CalendarEvent[]> {
-  const url = `https://financialmodelingprep.com/stable/dividends?symbol=${encodeURIComponent(
-    ticker
-  )}&apikey=${encodeURIComponent(apiKey)}`;
 
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 7000);
+  const timer = setTimeout(() => ctrl.abort(), 8000);
 
   try {
-    const res = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json" },
-      signal: ctrl.signal,
-    });
+    const res = await fetch(url, { headers, signal: ctrl.signal });
     if (!res.ok) return [];
 
-    const data = (await res.json()) as Array<{
-      symbol?: string;
-      date?: string; // ex-dividend date in FMP
-      paymentDate?: string;
-      recordDate?: string;
-      declarationDate?: string;
-    }>;
-    if (!Array.isArray(data)) return [];
+    const data = (await res.json()) as any;
+    const result = data?.quoteSummary?.result?.[0];
+    if (!result) return [];
 
-    const { pastISO, futureISO } = windowISO(PAST_DAYS, FUTURE_DAYS_DIV);
     const events: CalendarEvent[] = [];
+    const cal = result.calendarEvents;
+    if (!cal) return [];
 
-    for (const row of data) {
-      if (row.date && row.date >= pastISO && row.date <= futureISO) {
+    const earningsDates = cal.earnings?.earningsDate;
+    const isEstimate = cal.earnings?.isEarningsDateEstimate ?? false;
+    if (Array.isArray(earningsDates) && earningsDates.length > 0) {
+      for (const d of earningsDates) {
+        const raw = typeof d === "object" ? d?.raw : d;
+        if (!raw || typeof raw !== "number") continue;
         events.push({
           ticker,
-          date: row.date,
-          type: "ex_dividend",
-          label: "Ex-Dividend",
-        });
-      }
-      if (
-        row.paymentDate &&
-        row.paymentDate >= pastISO &&
-        row.paymentDate <= futureISO
-      ) {
-        events.push({
-          ticker,
-          date: row.paymentDate,
-          type: "dividend",
-          label: "Dividend Paid",
-        });
-      }
-    }
-
-    return events;
-  } catch {
-    return [];
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function fetchEarnings(
-  ticker: string,
-  apiKey: string
-): Promise<CalendarEvent[]> {
-  const url = `https://financialmodelingprep.com/stable/earnings?symbol=${encodeURIComponent(
-    ticker
-  )}&apikey=${encodeURIComponent(apiKey)}`;
-
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 7000);
-
-  try {
-    const res = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json" },
-      signal: ctrl.signal,
-    });
-    if (!res.ok) return [];
-
-    const data = (await res.json()) as Array<{
-      symbol?: string;
-      date?: string;
-    }>;
-    if (!Array.isArray(data)) return [];
-
-    const { pastISO, futureISO } = windowISO(PAST_DAYS, FUTURE_DAYS_EARN);
-    const events: CalendarEvent[] = [];
-
-    for (const row of data) {
-      if (row.date && row.date >= pastISO && row.date <= futureISO) {
-        events.push({
-          ticker,
-          date: row.date,
+          date: new Date(raw * 1000).toISOString().split("T")[0],
           type: "earnings",
-          label: "Earnings",
+          label: earningsDates.length > 1 ? "Earnings (est. window)" : "Earnings",
+          estimate: isEstimate || earningsDates.length > 1,
         });
       }
     }
+
+    const exDiv = cal.exDividendDate?.raw ?? cal.exDividendDate;
+    if (typeof exDiv === "number" && exDiv > 0) {
+      events.push({
+        ticker,
+        date: new Date(exDiv * 1000).toISOString().split("T")[0],
+        type: "ex_dividend",
+        label: "Ex-Dividend",
+      });
+    }
+
+    const divPay = cal.dividendDate?.raw ?? cal.dividendDate;
+    if (typeof divPay === "number" && divPay > 0) {
+      events.push({
+        ticker,
+        date: new Date(divPay * 1000).toISOString().split("T")[0],
+        type: "dividend",
+        label: "Dividend Paid",
+      });
+    }
+
     return events;
-  } catch {
+  } catch (err) {
+    console.error(`Calendar fetch failed for ${ticker}:`, err);
     return [];
   } finally {
     clearTimeout(timer);
@@ -149,31 +101,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    const apiKey = process.env.FMP_API_KEY;
-    if (!apiKey) {
-      res.status(500).json({
-        error: "FMP_API_KEY environment variable not configured on Vercel.",
-        events: [],
-        noData: [],
-      });
-      return;
-    }
-
     const tickers = String(tickersStr)
       .split(",")
       .map((t) => t.trim())
       .filter(Boolean);
 
-    const results = await Promise.all(
-      tickers.map(async (ticker) => {
-        const [divs, earnings] = await Promise.all([
-          fetchDividends(ticker, apiKey),
-          fetchEarnings(ticker, apiKey),
-        ]);
-        return [...divs, ...earnings];
-      })
-    );
-
+    const results = await Promise.all(tickers.map(fetchCalendar));
     const allEvents: CalendarEvent[] = results.flat();
 
     const seen = new Set<string>();
@@ -193,7 +126,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(200).json({
       events,
       noData,
-      source: "fmp-stable",
+      proxied: !!process.env.YAHOO_PROXY_URL,
       updatedAt: new Date().toISOString(),
     });
   } catch (err) {
