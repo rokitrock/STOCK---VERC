@@ -5,7 +5,10 @@ export default function handler(_req: VercelRequest, res: VercelResponse) {
   res.status(200).json({
     ok: true,
     runtime: "vercel-node",
+    node: process.version,
     timestamp: new Date().toISOString(),
-    message: "If you can read this, your api/ folder is deployed correctly.",
+    fmpKeyConfigured: !!process.env.FMP_API_KEY,
+    openaiKeyConfigured: !!process.env.OPENAI_API_KEY,
+    message: "API is deployed correctly.",
   });
 }

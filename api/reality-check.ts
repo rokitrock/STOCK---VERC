@@ -1,6 +1,5 @@
 // api/reality-check.ts — Vercel serverless function
 // Uses OpenAI to surface current risks/concerns for a given ticker.
-// Requires OPENAI_API_KEY environment variable set in Vercel dashboard.
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import OpenAI from "openai";
 

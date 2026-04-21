@@ -1,115 +1,76 @@
 // api/prices.ts — Vercel serverless function
-// Fetches prices from Yahoo Finance with cookie+crumb auth fallback.
+// Fetches current prices from Financial Modeling Prep (FMP).
+// Requires FMP_API_KEY environment variable set in Vercel dashboard.
+//
+// FMP supports TSX (.TO) and TSXV (.V) suffixes natively.
+// Batch endpoint: /api/v3/quote/SYM1,SYM2,SYM3 — one request for all tickers.
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-// Module-level cache for Yahoo auth (warm invocations reuse)
-let cachedAuth: { cookie: string; crumb: string; expiresAt: number } | null = null;
+type FmpQuote = {
+  symbol: string;
+  price: number | null;
+  name?: string;
+};
 
-async function getYahooAuth(): Promise<{ cookie: string; crumb: string } | null> {
-  if (cachedAuth && cachedAuth.expiresAt > Date.now()) {
-    return { cookie: cachedAuth.cookie, crumb: cachedAuth.crumb };
-  }
-  try {
-    const cookieRes = await fetch("https://fc.yahoo.com", {
-      headers: { "User-Agent": "Mozilla/5.0" },
-      redirect: "manual",
-    });
-    const setCookie = cookieRes.headers.get("set-cookie") || "";
-    if (!setCookie) return null;
+async function fetchPricesFromFMP(
+  tickers: string[],
+  apiKey: string
+): Promise<{ prices: Record<string, number | null>; errors: Record<string, string> }> {
+  const prices: Record<string, number | null> = {};
+  const errors: Record<string, string> = {};
 
-    const crumbRes = await fetch(
-      "https://query1.finance.yahoo.com/v1/test/getcrumb",
-      { headers: { "User-Agent": "Mozilla/5.0", Cookie: setCookie } }
-    );
-    if (!crumbRes.ok) return null;
-    const crumb = (await crumbRes.text()).trim();
-    if (!crumb || crumb.length > 50 || crumb.includes("<")) return null;
-
-    cachedAuth = {
-      cookie: setCookie,
-      crumb,
-      expiresAt: Date.now() + 30 * 60 * 1000,
-    };
-    return { cookie: setCookie, crumb };
-  } catch {
-    return null;
-  }
-}
-
-type PriceResult = { ticker: string; price: number | null; error?: string };
-
-const HOSTS = [
-  "https://query1.finance.yahoo.com",
-  "https://query2.finance.yahoo.com",
-];
-
-async function tryFetch(
-  ticker: string,
-  host: string,
-  withAuth: boolean
-): Promise<{ price: number | null; status: number; reason?: string }> {
-  let url = `${host}/v8/finance/chart/${encodeURIComponent(
-    ticker
-  )}?interval=1d&range=1d`;
-  const headers: Record<string, string> = {
-    "User-Agent":
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    Accept: "application/json",
-  };
-
-  if (withAuth) {
-    const auth = await getYahooAuth();
-    if (auth) {
-      url += `&crumb=${encodeURIComponent(auth.crumb)}`;
-      headers.Cookie = auth.cookie;
-    }
-  }
+  // FMP batch endpoint: comma-separated tickers in URL path, 1 request for all
+  const symbolsPath = tickers.map(encodeURIComponent).join(",");
+  const url = `https://financialmodelingprep.com/api/v3/quote/${symbolsPath}?apikey=${encodeURIComponent(apiKey)}`;
 
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 8000);
+  const timer = setTimeout(() => ctrl.abort(), 9000);
 
   try {
-    const res = await fetch(url, { headers, signal: ctrl.signal });
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json" },
+      signal: ctrl.signal,
+    });
+
     if (!res.ok) {
-      return { price: null, status: res.status, reason: `HTTP ${res.status}` };
+      const errMsg = `FMP HTTP ${res.status}`;
+      for (const t of tickers) errors[t] = errMsg;
+      return { prices: Object.fromEntries(tickers.map((t) => [t, null])), errors };
     }
-    const data = (await res.json()) as any;
-    const result = data?.chart?.result?.[0];
-    if (!result) return { price: null, status: 200, reason: "no chart result" };
 
-    const closeArr = result.indicators?.quote?.[0]?.close;
-    const fallback =
-      Array.isArray(closeArr)
-        ? closeArr.filter((v: number | null) => v !== null).pop()
-        : undefined;
-    const price = result.meta?.regularMarketPrice ?? fallback;
+    const data = (await res.json()) as FmpQuote[] | { "Error Message"?: string };
 
-    if (price === null || price === undefined || isNaN(price)) {
-      return { price: null, status: 200, reason: "invalid price data" };
+    if (!Array.isArray(data)) {
+      const errMsg =
+        (data as any)?.["Error Message"] || "FMP returned non-array response";
+      for (const t of tickers) errors[t] = errMsg;
+      return { prices: Object.fromEntries(tickers.map((t) => [t, null])), errors };
     }
-    return { price: Math.round(price * 100) / 100, status: 200 };
+
+    // Index returned quotes by symbol (FMP returns uppercase symbols)
+    const bySymbol = new Map<string, FmpQuote>();
+    for (const q of data) {
+      if (q?.symbol) bySymbol.set(q.symbol.toUpperCase(), q);
+    }
+
+    for (const t of tickers) {
+      const q = bySymbol.get(t.toUpperCase());
+      if (q && typeof q.price === "number" && !isNaN(q.price)) {
+        prices[t] = Math.round(q.price * 100) / 100;
+      } else {
+        prices[t] = null;
+        errors[t] = "Not found in FMP response";
+      }
+    }
+
+    return { prices, errors };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown";
-    return { price: null, status: 0, reason: msg };
+    for (const t of tickers) errors[t] = `FMP fetch failed: ${msg}`;
+    return { prices: Object.fromEntries(tickers.map((t) => [t, null])), errors };
   } finally {
     clearTimeout(timer);
   }
-}
-
-async function fetchPrice(ticker: string): Promise<PriceResult> {
-  const attempts: string[] = [];
-  for (const host of HOSTS) {
-    let r = await tryFetch(ticker, host, false);
-    if (r.price !== null) return { ticker, price: r.price };
-    attempts.push(`${host.replace("https://","")} no-auth: ${r.reason}`);
-
-    if (r.status === 401 || r.status === 403) {
-      r = await tryFetch(ticker, host, true);
-      if (r.price !== null) return { ticker, price: r.price };
-      attempts.push(`${host.replace("https://","")} auth: ${r.reason}`);
-    }
-  }
-  return { ticker, price: null, error: attempts.join(" | ") };
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -122,9 +83,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    const tickers = tickersStr
+    const apiKey = process.env.FMP_API_KEY;
+    if (!apiKey) {
+      res.status(500).json({
+        error: "FMP_API_KEY environment variable not configured on Vercel.",
+      });
+      return;
+    }
+
+    const tickers = String(tickersStr)
       .split(",")
-      .map((t: string) => t.trim())
+      .map((t) => t.trim())
       .filter(Boolean);
 
     if (tickers.length === 0) {
@@ -132,19 +101,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    const results = await Promise.all(tickers.map(fetchPrice));
+    const { prices, errors } = await fetchPricesFromFMP(tickers, apiKey);
 
-    const prices: Record<string, number | null> = {};
-    const errors: Record<string, string> = {};
-    for (const r of results) {
-      prices[r.ticker] = r.price;
-      if (r.error) errors[r.ticker] = r.error;
+    // Only surface errors for tickers that actually failed
+    const cleanErrors: Record<string, string> = {};
+    for (const [k, v] of Object.entries(errors)) {
+      if (prices[k] === null && v) cleanErrors[k] = v;
     }
 
     res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=300");
     res.status(200).json({
       prices,
-      errors: Object.keys(errors).length > 0 ? errors : undefined,
+      errors: Object.keys(cleanErrors).length > 0 ? cleanErrors : undefined,
+      source: "fmp",
       updatedAt: new Date().toISOString(),
     });
   } catch (err) {
