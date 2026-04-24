@@ -4,10 +4,15 @@
 //
 // Yahoo's quoteSummary endpoint requires a cookie + crumb handshake. We first
 // try a plain request; if Yahoo rejects it (401/403/429), we fetch a cookie
-// from fc.yahoo.com, exchange it for a crumb at /v1/test/getcrumb, and retry
-// with the crumb query param + Cookie header. The crumb is cached in-memory
-// for 30 minutes so repeated calls within the same serverless instance don't
-// re-handshake.
+// from fc.yahoo.com (with finance.yahoo.com as a fallback), exchange it for a
+// crumb at /v1/test/getcrumb, and retry with the crumb query param + Cookie
+// header. The crumb is cached in-memory for 30 minutes so repeated calls
+// within the same serverless instance don't re-handshake.
+//
+// Append ?debug=1 to the query to surface per-ticker failure reasons
+// (HTTP statuses and crumb state) in the response body. Useful when the
+// calendar appears empty and you need to know whether Yahoo is blocking
+// Vercel's IPs entirely vs. simply not having data for a ticker.
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 type CalendarEvent = {
@@ -16,6 +21,12 @@ type CalendarEvent = {
   type: "earnings" | "ex_dividend" | "dividend";
   label: string;
   estimate?: boolean;
+};
+
+type FetchOutcome = {
+  status: number;
+  bodySnippet?: string;
+  error?: string;
 };
 
 const USER_AGENT =
@@ -30,6 +41,39 @@ const baseHeaders = (): Record<string, string> => ({
 });
 
 let cachedCreds: { crumb: string; cookie: string; expires: number } | null = null;
+let lastCrumbError: string | null = null;
+
+function extractCookies(res: Response): string {
+  const rawGetSetCookie = (res.headers as any).getSetCookie?.();
+  const lines: string[] = Array.isArray(rawGetSetCookie) ? rawGetSetCookie : [];
+
+  if (lines.length === 0) {
+    const single = res.headers.get("set-cookie");
+    if (single) {
+      for (const part of single.split(/,(?=\s*[A-Za-z0-9_-]+=)/)) {
+        lines.push(part);
+      }
+    }
+  }
+
+  return lines
+    .map((c) => c.split(";")[0].trim())
+    .filter(Boolean)
+    .join("; ");
+}
+
+async function fetchCookieFrom(url: string): Promise<string> {
+  try {
+    const res = await fetch(url, {
+      headers: baseHeaders(),
+      redirect: "manual",
+    });
+    return extractCookies(res);
+  } catch (err) {
+    lastCrumbError = `cookie fetch ${url}: ${err instanceof Error ? err.message : String(err)}`;
+    return "";
+  }
+}
 
 async function getCrumbAndCookie(): Promise<
   { crumb: string; cookie: string } | null
@@ -38,54 +82,58 @@ async function getCrumbAndCookie(): Promise<
     return { crumb: cachedCreds.crumb, cookie: cachedCreds.cookie };
   }
 
-  try {
-    const cookieRes = await fetch("https://fc.yahoo.com/", {
-      headers: baseHeaders(),
-      redirect: "manual",
-    });
+  const cookieSources = [
+    "https://fc.yahoo.com/",
+    "https://finance.yahoo.com/quote/AAPL/",
+    "https://login.yahoo.com/",
+  ];
 
-    const rawSetCookie =
-      (cookieRes.headers as any).getSetCookie?.() ??
-      cookieRes.headers.get("set-cookie");
-    const cookieLines: string[] = Array.isArray(rawSetCookie)
-      ? rawSetCookie
-      : typeof rawSetCookie === "string"
-        ? rawSetCookie.split(/,(?=[^;]+=)/)
-        : [];
+  let cookie = "";
+  for (const src of cookieSources) {
+    cookie = await fetchCookieFrom(src);
+    if (cookie) break;
+  }
 
-    const cookie = cookieLines
-      .map((c) => c.split(";")[0].trim())
-      .filter(Boolean)
-      .join("; ");
-
-    if (!cookie) return null;
-
-    const crumbRes = await fetch(
-      "https://query1.finance.yahoo.com/v1/test/getcrumb",
-      {
-        headers: { ...baseHeaders(), Cookie: cookie },
-      }
-    );
-
-    if (!crumbRes.ok) return null;
-    const crumb = (await crumbRes.text()).trim();
-    if (!crumb || crumb.length > 64) return null;
-
-    cachedCreds = {
-      crumb,
-      cookie,
-      expires: Date.now() + 30 * 60 * 1000,
-    };
-    return { crumb, cookie };
-  } catch {
+  if (!cookie) {
+    lastCrumbError = lastCrumbError || "no Set-Cookie from any Yahoo endpoint";
     return null;
   }
+
+  for (const host of ["query1.finance.yahoo.com", "query2.finance.yahoo.com"]) {
+    try {
+      const crumbRes = await fetch(`https://${host}/v1/test/getcrumb`, {
+        headers: { ...baseHeaders(), Cookie: cookie },
+      });
+
+      if (!crumbRes.ok) {
+        lastCrumbError = `getcrumb ${host}: HTTP ${crumbRes.status}`;
+        continue;
+      }
+      const crumb = (await crumbRes.text()).trim();
+      if (!crumb || crumb.length > 64) {
+        lastCrumbError = `getcrumb ${host}: empty/invalid crumb`;
+        continue;
+      }
+
+      cachedCreds = {
+        crumb,
+        cookie,
+        expires: Date.now() + 30 * 60 * 1000,
+      };
+      lastCrumbError = null;
+      return { crumb, cookie };
+    } catch (err) {
+      lastCrumbError = `getcrumb ${host}: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
+  return null;
 }
 
 async function fetchQuoteSummary(
   ticker: string,
   creds: { crumb: string; cookie: string } | null
-): Promise<any | null> {
+): Promise<{ data: any | null; outcome: FetchOutcome }> {
   const proxyBase = process.env.YAHOO_PROXY_URL;
   const yahooHost = "query1.finance.yahoo.com";
   const modules = "calendarEvents,summaryDetail";
@@ -107,33 +155,68 @@ async function fetchQuoteSummary(
 
   try {
     const res = await fetch(url, { headers, signal: ctrl.signal });
-    if (!res.ok) return { _status: res.status };
-    return await res.json();
-  } catch {
-    return null;
+    if (!res.ok) {
+      let snippet = "";
+      try {
+        snippet = (await res.text()).slice(0, 200).replace(/\s+/g, " ").trim();
+      } catch {}
+      return { data: null, outcome: { status: res.status, bodySnippet: snippet } };
+    }
+    const data = await res.json();
+    return { data, outcome: { status: res.status } };
+  } catch (err) {
+    return {
+      data: null,
+      outcome: {
+        status: 0,
+        error: err instanceof Error ? err.message : String(err),
+      },
+    };
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function fetchCalendar(ticker: string): Promise<CalendarEvent[]> {
-  let data = await fetchQuoteSummary(ticker, null);
+async function fetchCalendar(
+  ticker: string
+): Promise<{ events: CalendarEvent[]; debug: Record<string, unknown> }> {
+  const debug: Record<string, unknown> = {};
 
-  if (!data || data._status === 401 || data._status === 403 || data._status === 429) {
+  let { data, outcome } = await fetchQuoteSummary(ticker, null);
+  debug.plain = outcome;
+
+  const needsCrumb =
+    !data ||
+    outcome.status === 401 ||
+    outcome.status === 403 ||
+    outcome.status === 429 ||
+    outcome.status === 0;
+
+  if (needsCrumb) {
     const creds = await getCrumbAndCookie();
+    debug.crumbObtained = !!creds;
+    if (!creds && lastCrumbError) debug.crumbError = lastCrumbError;
     if (creds) {
-      data = await fetchQuoteSummary(ticker, creds);
+      const retry = await fetchQuoteSummary(ticker, creds);
+      data = retry.data;
+      debug.retry = retry.outcome;
     }
   }
 
-  if (!data || data._status) return [];
+  if (!data) return { events: [], debug };
 
   const result = data?.quoteSummary?.result?.[0];
-  if (!result) return [];
+  if (!result) {
+    debug.reason = "no quoteSummary.result in response";
+    return { events: [], debug };
+  }
 
   const events: CalendarEvent[] = [];
   const cal = result.calendarEvents;
-  if (!cal) return [];
+  if (!cal) {
+    debug.reason = "no calendarEvents in result";
+    return { events, debug };
+  }
 
   const earningsDates = cal.earnings?.earningsDate;
   const isEstimate = cal.earnings?.isEarningsDateEstimate ?? false;
@@ -171,13 +254,14 @@ async function fetchCalendar(ticker: string): Promise<CalendarEvent[]> {
     });
   }
 
-  return events;
+  return { events, debug };
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const tickersParam = req.query.tickers;
     const tickersStr = Array.isArray(tickersParam) ? tickersParam[0] : tickersParam;
+    const debugRequested = req.query.debug === "1" || req.query.debug === "true";
 
     if (!tickersStr) {
       res.status(400).json({ error: "Missing 'tickers' query parameter" });
@@ -190,7 +274,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .filter(Boolean);
 
     const results = await Promise.all(tickers.map(fetchCalendar));
-    const allEvents: CalendarEvent[] = results.flat();
+    const allEvents: CalendarEvent[] = results.flatMap((r) => r.events);
 
     const seen = new Set<string>();
     const events = allEvents.filter((e) => {
@@ -205,13 +289,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const withData = new Set(events.map((e) => e.ticker));
     const noData = tickers.filter((t) => !withData.has(t));
 
-    res.setHeader("Cache-Control", "s-maxage=3600, stale-while-revalidate=7200");
-    res.status(200).json({
+    const payload: Record<string, unknown> = {
       events,
       noData,
       proxied: !!process.env.YAHOO_PROXY_URL,
       updatedAt: new Date().toISOString(),
-    });
+    };
+
+    if (debugRequested) {
+      const perTicker: Record<string, unknown> = {};
+      tickers.forEach((t, i) => {
+        perTicker[t] = results[i].debug;
+      });
+      payload.debug = perTicker;
+    }
+
+    if (noData.length === tickers.length) {
+      res.setHeader("Cache-Control", "no-store");
+    } else {
+      res.setHeader("Cache-Control", "s-maxage=3600, stale-while-revalidate=7200");
+    }
+    res.status(200).json(payload);
   } catch (err) {
     console.error("calendar handler crashed:", err);
     res.status(500).json({
