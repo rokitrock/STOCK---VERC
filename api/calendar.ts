@@ -43,6 +43,13 @@ const baseHeaders = (): Record<string, string> => ({
 let cachedCreds: { crumb: string; cookie: string; expires: number } | null = null;
 let lastCrumbError: string | null = null;
 
+function viaProxy(targetUrl: string): string {
+  const proxyBase = process.env.YAHOO_PROXY_URL;
+  return proxyBase
+    ? `${proxyBase.replace(/\/$/, "")}/?url=${encodeURIComponent(targetUrl)}`
+    : targetUrl;
+}
+
 function extractCookies(res: Response): string {
   const rawGetSetCookie = (res.headers as any).getSetCookie?.();
   const lines: string[] = Array.isArray(rawGetSetCookie) ? rawGetSetCookie : [];
@@ -64,7 +71,7 @@ function extractCookies(res: Response): string {
 
 async function fetchCookieFrom(url: string): Promise<string> {
   try {
-    const res = await fetch(url, {
+    const res = await fetch(viaProxy(url), {
       headers: baseHeaders(),
       redirect: "manual",
     });
@@ -101,7 +108,7 @@ async function getCrumbAndCookie(): Promise<
 
   for (const host of ["query1.finance.yahoo.com", "query2.finance.yahoo.com"]) {
     try {
-      const crumbRes = await fetch(`https://${host}/v1/test/getcrumb`, {
+      const crumbRes = await fetch(viaProxy(`https://${host}/v1/test/getcrumb`), {
         headers: { ...baseHeaders(), Cookie: cookie },
       });
 
@@ -134,7 +141,6 @@ async function fetchQuoteSummary(
   ticker: string,
   creds: { crumb: string; cookie: string } | null
 ): Promise<{ data: any | null; outcome: FetchOutcome }> {
-  const proxyBase = process.env.YAHOO_PROXY_URL;
   const yahooHost = "query1.finance.yahoo.com";
   const modules = "calendarEvents,summaryDetail";
   const crumbParam = creds ? `&crumb=${encodeURIComponent(creds.crumb)}` : "";
@@ -143,9 +149,7 @@ async function fetchQuoteSummary(
   )}?modules=${modules}${crumbParam}`;
 
   const yahooUrl = `https://${yahooHost}${yahooPath}`;
-  const url = proxyBase
-    ? `${proxyBase.replace(/\/$/, "")}/?url=${encodeURIComponent(yahooUrl)}`
-    : yahooUrl;
+  const url = viaProxy(yahooUrl);
 
   const headers = baseHeaders();
   if (creds) headers.Cookie = creds.cookie;
