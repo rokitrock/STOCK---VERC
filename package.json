@@ -9,6 +9,8 @@
     "deploy": "vercel --prod"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.88.0",
+    "@vercel/blob": "^2.3.0",
     "openai": "^6.34.0"
   },
   "devDependencies": {

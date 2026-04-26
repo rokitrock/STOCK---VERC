@@ -497,11 +497,13 @@ const TYPE_STYLE = {
 
 let calState = {
   cursor: new Date(), // first of month currently viewed
-  events: [],         // live events from API
+  events: [],         // events from API (researched weekly by Claude)
   loaded: false,
   loading: false,
   noData: [],
   error: null,        // string describing last fetch failure, if any
+  updatedAt: null,    // ISO timestamp of last refresh
+  message: null,      // hint from API when calendar is not yet populated
 };
 
 function openCalendar() {
@@ -533,6 +535,7 @@ function goToToday() {
 async function loadCalendar() {
   calState.loading = true;
   calState.error = null;
+  calState.message = null;
   const tickers = REPORTS.map(r => r.ticker).join(',');
   try {
     const res = await fetch(`/api/calendar?tickers=${encodeURIComponent(tickers)}`);
@@ -542,8 +545,10 @@ async function loadCalendar() {
       throw new Error(`HTTP ${res.status} — ${snippet || res.statusText || 'no body'}`);
     }
     const data = await res.json();
-    calState.events = (data.events || []).map(e => ({ ...e, source: 'live' }));
+    calState.events = data.events || [];
     calState.noData = data.noData || [];
+    calState.updatedAt = data.updatedAt || null;
+    calState.message = data.message || null;
   } catch (err) {
     console.error('Calendar load failed:', err);
     calState.events = [];
@@ -671,20 +676,34 @@ function renderMissing() {
   const wrap = document.getElementById('cal-missing-wrap');
   if (!calState.loaded) { wrap.innerHTML = ''; return; }
 
+  const blocks = [];
+
   if (calState.error) {
-    wrap.innerHTML = `<div class="cal-missing" style="border-color:rgba(239,68,68,0.3);color:#FCA5A5">
+    blocks.push(`<div class="cal-missing" style="border-color:rgba(239,68,68,0.3);color:#FCA5A5">
       <strong>Calendar API error:</strong> ${calState.error}
-      <br><br>Hit <code>/api/calendar?tickers=HUT,MOS&amp;debug=1</code> directly in a browser to see which step is failing. If Yahoo is blocking Vercel's IPs, set <code>YAHOO_PROXY_URL</code> in the Vercel dashboard (same Cloudflare Worker used by <code>/api/prices</code>).
-    </div>`;
-    return;
+    </div>`);
+  } else if (calState.message) {
+    blocks.push(`<div class="cal-missing">
+      ${calState.message}
+    </div>`);
+  }
+
+  if (calState.updatedAt) {
+    const refreshed = new Date(calState.updatedAt);
+    blocks.push(`<div class="cal-missing" style="border-style:solid;background:transparent">
+      Last research pass: ${refreshed.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })} · refreshed weekly by Claude
+    </div>`);
   }
 
   const missing = calState.noData || [];
-  if (missing.length === 0) { wrap.innerHTML = ''; return; }
-  wrap.innerHTML = `<div class="cal-missing">
-    <strong>No live calendar data</strong> returned for: ${missing.join(', ')}.
-    This is common for small-cap and TSXV names. Add manual dates to <code>CUSTOM_EVENTS</code> in <code>index.html</code> to display them.
-  </div>`;
+  if (missing.length > 0 && !calState.error && !calState.message) {
+    blocks.push(`<div class="cal-missing">
+      <strong>No catalysts on file</strong> for: ${missing.join(', ')}.
+      Either nothing dated has been announced, or the latest research pass found nothing reliable. Add manual dates to <code>CUSTOM_EVENTS</code> in <code>index.html</code> to fill gaps.
+    </div>`);
+  }
+
+  wrap.innerHTML = blocks.join('');
 }
 
 function jumpToTicker(ticker) {
